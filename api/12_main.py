@@ -15,12 +15,12 @@ sys.path.insert(
 )
 
 
-# Load chatbot
 CHAT_FILE = (
     PROJECT_ROOT
     / "api"
     / "11_chat.py"
 )
+
 
 spec = importlib.util.spec_from_file_location(
     "chat_module",
@@ -35,8 +35,13 @@ spec.loader.exec_module(
     chat_module
 )
 
+
 retrieve = chat_module.retrieve
 generate_answer = chat_module.generate_answer
+classify_query = chat_module.classify_query
+generate_general_response = (
+    chat_module.generate_general_response
+)
 
 
 app = FastAPI(
@@ -151,8 +156,36 @@ def chat(
 
     try:
 
+        query_type = classify_query(
+            question
+        )
+
+        print(
+            f"Query type: {query_type}"
+        )
+
+        if query_type == "GENERAL":
+
+            answer = generate_general_response(
+                question
+            )
+
+            return ChatResponse(
+                answer=answer,
+                sources=[]
+            )
+
+        print(
+            "Retrieving school information..."
+        )
+
         results = retrieve(
             question
+        )
+
+        print(
+            f"Relevant chunks found: "
+            f"{len(results)}"
         )
 
         answer, provider = generate_answer(
@@ -182,3 +215,14 @@ def chat(
             ),
             sources=[]
         )
+
+
+if __name__ == "__main__":
+
+    import uvicorn
+
+    uvicorn.run(
+        app,
+        host="0.0.0.0",
+        port=8000
+    )
