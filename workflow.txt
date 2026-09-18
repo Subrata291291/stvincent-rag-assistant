@@ -1,0 +1,8 @@
+File	কাজ
+01_discover_site.py	Website-এর pages + PDFs খুঁজে বের করে
+02_scrape_pages.py	Website pages-এর useful content সংগ্রহ করে
+03_download_pdfs.py	PDF files download করে
+04_process_documents.py	Pages/PDFs clean ও standard document format-এ আনে
+05_chunk_documents.py	বড় documents ছোট ছোট chunks-এ ভাগ করে
+06_create_embeddings.py	প্রতিটি chunk-এর numerical vector তৈরি করে
+07_sync_to_pinecone.py	vectors Pinecone-এ upload/sync করে
