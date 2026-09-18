@@ -6,3 +6,27 @@ File	কাজ
 05_chunk_documents.py	বড় documents ছোট ছোট chunks-এ ভাগ করে
 06_create_embeddings.py	প্রতিটি chunk-এর numerical vector তৈরি করে
 07_sync_to_pinecone.py	vectors Pinecone-এ upload/sync করে
+
+
+
+WordPress website
+      │
+      ├── HTML pages
+      │
+      └── PDFs
+           │
+           ▼
+     Ingestion / Sync
+           │
+           ├── scrape HTML
+           ├── download PDFs
+           ├── extract/OCR
+           ├── chunk
+           ├── embeddings
+           └── Pinecone
+                  │
+                  ▼
+             Latest knowledge
+                  │
+                  ▼
+              Chatbot RAG
