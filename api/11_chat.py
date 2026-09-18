@@ -4,6 +4,7 @@ import importlib.util
 import os
 import re
 import json
+import time
 
 from dotenv import load_dotenv
 
@@ -182,6 +183,15 @@ Pay special attention to:
 - documents
 - class names
 
+For fee questions, the fee category must match the
+user's question exactly.
+
+For example, evidence about an Application Form Fee
+does not support an Admission Fee answer.
+
+Evidence about an Annual Charge does not support an
+Admission Fee answer.
+
 Return ONLY valid JSON.
 
 Required format:
@@ -202,6 +212,38 @@ or:
 
 Do not add markdown.
 Do not add explanations outside the JSON.
+"""
+
+
+QUERY_CLASSIFIER_PROMPT = """
+You classify user messages for a school AI assistant.
+
+Return ONLY one word:
+
+GENERAL
+
+or
+
+SCHOOL
+
+GENERAL means the user is having normal conversation
+that does not require information from the school's
+website or documents.
+
+This includes conversational messages, greetings,
+thanks, casual small talk, questions about the assistant,
+and similar messages that do not require school information.
+
+SCHOOL means the user is asking for information that
+should be answered using the school's website or documents.
+
+This includes questions about admissions, fees, classes,
+teachers, staff, facilities, activities, notices, policies,
+documents, events, contact information, transport,
+academic information, schedules, or other school-specific
+information.
+
+When uncertain, return SCHOOL.
 """
 
 
@@ -265,7 +307,6 @@ def extract_response_content(response):
     content = response.content
 
     if isinstance(content, str):
-
         return content.strip()
 
     if isinstance(content, list):
@@ -275,10 +316,7 @@ def extract_response_content(response):
         for item in content:
 
             if isinstance(item, str):
-
-                parts.append(
-                    item
-                )
+                parts.append(item)
 
             elif isinstance(item, dict):
 
@@ -288,10 +326,7 @@ def extract_response_content(response):
                 )
 
                 if text_value:
-
-                    parts.append(
-                        text_value
-                    )
+                    parts.append(text_value)
 
         return "\n".join(
             parts
@@ -300,6 +335,38 @@ def extract_response_content(response):
     return str(
         content
     ).strip()
+
+
+def normalize_text(text):
+
+    text = text.lower().strip()
+
+    text = re.sub(
+        r"\s+",
+        " ",
+        text
+    )
+
+    return text
+
+
+def normalize_for_matching(text):
+
+    text = normalize_text(text)
+
+    text = re.sub(
+        r"[^\w\s]",
+        " ",
+        text
+    )
+
+    text = re.sub(
+        r"\s+",
+        " ",
+        text
+    )
+
+    return text.strip()
 
 
 def build_context(results):
@@ -415,7 +482,6 @@ def clean_grounded_answer(answer):
                 pattern in sentence_lower
                 for pattern in unrelated_patterns
             ):
-
                 continue
 
             safe_sentences.append(
@@ -427,7 +493,6 @@ def clean_grounded_answer(answer):
         ).strip()
 
         if cleaned:
-
             return cleaned
 
         return (
@@ -522,6 +587,12 @@ The answer must answer the exact question asked.
 If even one important factual statement is not directly
 supported by the context, return supported=false.
 
+For fee questions, verify that the amount belongs to the
+same fee category requested by the user.
+
+Do not accept an amount merely because the same amount
+appears somewhere in another fee category.
+
 Return only the required JSON.
 """
 
@@ -562,6 +633,131 @@ Return only the required JSON.
                 "Verification failed."
             ]
         )
+
+
+def classify_query(query):
+
+    messages = [
+        SystemMessage(
+            content=QUERY_CLASSIFIER_PROMPT
+        ),
+        HumanMessage(
+            content=query
+        )
+    ]
+
+    providers = create_providers()
+
+    if not providers:
+        return "SCHOOL"
+
+    for provider_name, provider in providers:
+
+        try:
+
+            print(
+                f"Classifier provider: {provider_name}"
+            )
+
+            response = provider.invoke(
+                messages
+            )
+
+            result = extract_response_content(
+                response
+            ).strip().upper()
+
+            if result == "GENERAL":
+                return "GENERAL"
+
+            if result == "SCHOOL":
+                return "SCHOOL"
+
+        except Exception as error:
+
+            print(
+                f"Classifier {provider_name} error: "
+                f"{error}"
+            )
+
+    return "SCHOOL"
+
+
+def generate_general_response(query):
+
+    general_prompt = """
+You are the conversational assistant for
+St. Vincent's Academy.
+
+The user's message is general conversation and does not
+require school-document information.
+
+Respond naturally, politely, and conversationally.
+
+Do not invent or provide school-specific facts.
+
+If the user asks for school-specific information,
+the school's document-based information system should
+be used.
+
+Return only the response to the user.
+"""
+
+    messages = [
+        SystemMessage(
+            content=general_prompt
+        ),
+        HumanMessage(
+            content=query
+        )
+    ]
+
+    providers = create_providers()
+
+    if not providers:
+        raise RuntimeError(
+            "No LLM provider is configured."
+        )
+
+    for provider_name, provider in providers:
+
+        try:
+
+            print(
+                f"Trying provider: {provider_name}"
+            )
+
+            response = provider.invoke(
+                messages
+            )
+
+            answer = extract_response_content(
+                response
+            )
+
+            if answer:
+
+                print(
+                    f"Provider used: {provider_name}"
+                )
+
+                return answer
+
+        except Exception as error:
+
+            print(
+                f"{provider_name} error: {error}"
+            )
+
+            print(
+                f"Falling back from {provider_name}..."
+            )
+
+            time.sleep(1)
+
+    raise RuntimeError(
+        "All LLM providers failed."
+    )
 
 
 def generate_answer(
@@ -611,6 +807,9 @@ For fee questions, distinguish:
 - Annual Charge
 - Transport Fee
 
+An amount belonging to one fee category must not be
+used as the amount for another fee category.
+
 If the requested information is not available, say:
 
 "I couldn't find this information in the available
@@ -644,8 +843,6 @@ Return only the final answer.
             "No LLM provider is configured."
         )
 
-    errors = []
-
     for provider_name, provider in providers:
 
         try:
@@ -667,7 +864,6 @@ Return only the final answer.
             )
 
             if not answer:
-
                 continue
 
             supported, unsupported_claims = (
@@ -736,6 +932,7 @@ STRICT REQUIREMENTS:
 - Do not change dates.
 - Do not change amounts.
 - Do not change fee categories.
+- Do not use an amount from another fee category.
 - Do not add names or addresses unless directly relevant.
 - Do not add extra facts.
 - If the exact answer is unavailable, say so.
@@ -767,7 +964,6 @@ Return only the final answer.
             )
 
             if not strict_answer:
-
                 continue
 
             strict_supported, strict_claims = (
@@ -816,9 +1012,11 @@ Return only the final answer.
                 f"{provider_name} error: {error}"
             )
 
-            errors.append(
-                f"{provider_name}: {error}"
+            print(
+                f"Falling back from {provider_name}..."
             )
+
+            time.sleep(1)
 
     return (
         "I couldn't provide a verified answer from the "
@@ -859,7 +1057,6 @@ def display_sources(results):
         )
 
         if key in seen:
-
             continue
 
         seen.add(
@@ -893,22 +1090,47 @@ def main():
 
         return
 
-    print()
-
-    print(
-        "Retrieving school information..."
-    )
-
-    results = retrieve(
-        query
-    )
-
-    print(
-        f"Relevant chunks found: "
-        f"{len(results)}"
-    )
-
     try:
+
+        query_type = classify_query(
+            query
+        )
+
+        print(
+            f"Query type: {query_type}"
+        )
+
+        if query_type == "GENERAL":
+
+            answer = generate_general_response(
+                query
+            )
+
+            print()
+            print("=" * 60)
+            print("ANSWER")
+            print("=" * 60)
+            print()
+
+            print(
+                answer
+            )
+
+            return
+
+        print()
+        print(
+            "Retrieving school information..."
+        )
+
+        results = retrieve(
+            query
+        )
+
+        print(
+            f"Relevant chunks found: "
+            f"{len(results)}"
+        )
 
         answer, provider = generate_answer(
             query,
@@ -916,7 +1138,6 @@ def main():
         )
 
         print()
-
         print("=" * 60)
         print("ANSWER")
         print("=" * 60)
@@ -935,7 +1156,6 @@ def main():
     except Exception as error:
 
         print()
-
         print("=" * 60)
         print("ERROR")
         print("=" * 60)
@@ -947,12 +1167,10 @@ def main():
         )
 
         print()
-
         print(
             f"Details: {error}"
         )
 
 
 if __name__ == "__main__":
-
     main()
