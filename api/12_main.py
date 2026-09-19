@@ -175,6 +175,17 @@ def chat(
                 sources=[]
             )
 
+        if query_type == "OUT_OF_SCOPE":
+
+            return ChatResponse(
+                answer=(
+                    "I'm not able to answer that. "
+                    "I'm designed to help with questions "
+                    "related to St. Vincent's Academy."
+                ),
+                sources=[]
+            )
+
         print(
             "Retrieving school information..."
         )

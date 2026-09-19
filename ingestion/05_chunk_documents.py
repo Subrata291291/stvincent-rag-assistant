@@ -45,22 +45,16 @@ def create_document_id(document):
 
     content_hash = create_content_hash(document)[:12]
 
-    return (
-        f"{prefix}-{safe_source}-{content_hash}"
-    )
+    return f"{prefix}-{safe_source}-{content_hash}"
 
 
 def remove_exact_duplicates(documents):
     unique_documents = []
     seen_hashes = set()
-
     duplicates = 0
 
     for document in documents:
-
-        content_hash = create_content_hash(
-            document
-        )
+        content_hash = create_content_hash(document)
 
         if content_hash in seen_hashes:
             duplicates += 1
@@ -72,50 +66,169 @@ def remove_exact_duplicates(documents):
     return unique_documents, duplicates
 
 
-def create_chunks(documents):
-    splitter = RecursiveCharacterTextSplitter(
-        chunk_size=CHUNK_SIZE,
-        chunk_overlap=CHUNK_OVERLAP,
-        separators=[
-            "\n\n",
-            "\n",
-            ". ",
-            " ",
-            ""
-        ]
+def extract_contact_block(text):
+    if not text:
+        return None
+
+    normalized = re.sub(
+        r"\s+",
+        " ",
+        text
+    ).strip()
+
+    hours_match = re.search(
+        r"School\s+Hours\s*:\s*"
+        r"(.{1,60}?)"
+        r"\s*\|",
+        normalized,
+        re.IGNORECASE
+    )
+
+    phone_match = re.search(
+        r"(\(\+91\)\s*[\d\s.-]{8,18})",
+        normalized,
+        re.IGNORECASE
+    )
+
+    email_match = re.search(
+        r"[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}",
+        normalized
+    )
+
+    address_match = re.search(
+        r"St\.?\s*Vincent'?s\s+Academy\s+"
+        r"Jotram,\s*Bardhaman,\s*West Bengal\s*713104",
+        normalized,
+        re.IGNORECASE
+    )
+
+    parts = []
+
+    if hours_match:
+        hours = hours_match.group(1).strip()
+        parts.append(
+            f"School Hours: {hours}"
+        )
+
+    if phone_match:
+        parts.append(
+            phone_match.group(1).strip()
+        )
+
+    if email_match:
+        parts.append(
+            email_match.group(0).strip()
+        )
+
+    if address_match:
+        parts.append(
+            address_match.group(0).strip()
+        )
+
+    if len(parts) < 2:
+        return None
+
+    return "\n".join(parts)
+
+
+def remove_contact_block(text, contact_block):
+    if not contact_block:
+        return text
+
+    cleaned = text
+
+    for line in contact_block.splitlines():
+        pattern = re.escape(line)
+
+        cleaned = re.sub(
+            pattern,
+            "",
+            cleaned,
+            count=1,
+            flags=re.IGNORECASE
+        )
+
+    return cleaned.strip()
+
+
+def create_chunks_for_document(
+    document,
+    splitter
+):
+    text = document.get(
+        "content",
+        ""
+    ).strip()
+
+    if not text:
+        return []
+
+    document_id = create_document_id(
+        document
     )
 
     chunks = []
 
-    for document in documents:
+    contact_block = None
 
-        text = document.get(
-            "content",
-            ""
-        ).strip()
-
-        if not text:
-            continue
-
-        document_id = create_document_id(
-            document
-        )
-
-        document_chunks = splitter.split_text(
+    if document.get(
+        "source_type",
+        ""
+    ).lower() == "webpage":
+        contact_block = extract_contact_block(
             text
         )
 
-        for chunk_index, chunk in enumerate(
+    remaining_text = text
+
+    if contact_block:
+        chunks.append({
+            "chunk_id": (
+                f"{document_id}"
+                f"-contact"
+            ),
+            "document_id": document_id,
+            "chunk_index": 0,
+            "title": document.get(
+                "title",
+                ""
+            ),
+            "content": contact_block,
+            "source": document.get(
+                "source",
+                ""
+            ),
+            "source_type": document.get(
+                "source_type",
+                ""
+            )
+        })
+
+        remaining_text = remove_contact_block(
+            text,
+            contact_block
+        )
+
+    if remaining_text:
+        document_chunks = splitter.split_text(
+            remaining_text
+        )
+
+        start_index = len(chunks)
+
+        for offset, chunk in enumerate(
             document_chunks
         ):
-
             chunks.append({
                 "chunk_id": (
                     f"{document_id}"
-                    f"-chunk-{chunk_index}"
+                    f"-chunk-"
+                    f"{start_index + offset}"
                 ),
                 "document_id": document_id,
-                "chunk_index": chunk_index,
+                "chunk_index": (
+                    start_index + offset
+                ),
                 "title": document.get(
                     "title",
                     ""
@@ -134,6 +247,32 @@ def create_chunks(documents):
     return chunks
 
 
+def create_chunks(documents):
+    splitter = RecursiveCharacterTextSplitter(
+        chunk_size=CHUNK_SIZE,
+        chunk_overlap=CHUNK_OVERLAP,
+        separators=[
+            "\n\n",
+            "\n",
+            ". ",
+            " ",
+            ""
+        ]
+    )
+
+    chunks = []
+
+    for document in documents:
+        chunks.extend(
+            create_chunks_for_document(
+                document,
+                splitter
+            )
+        )
+
+    return chunks
+
+
 def save_chunks(chunks):
     OUTPUT_FILE.parent.mkdir(
         parents=True,
@@ -144,7 +283,6 @@ def save_chunks(chunks):
         "w",
         encoding="utf-8"
     ) as file:
-
         json.dump(
             chunks,
             file,
@@ -154,7 +292,6 @@ def save_chunks(chunks):
 
 
 def main():
-
     print("=" * 60)
     print("ST. VINCENT - DOCUMENT CHUNKING")
     print("=" * 60)
@@ -193,9 +330,22 @@ def main():
 
     save_chunks(chunks)
 
+    contact_chunks = [
+        chunk
+        for chunk in chunks
+        if chunk["chunk_id"].endswith(
+            "-contact"
+        )
+    ]
+
     print(
         f"\nChunks created: "
         f"{len(chunks)}"
+    )
+
+    print(
+        f"Contact chunks created: "
+        f"{len(contact_chunks)}"
     )
 
     print(
@@ -213,34 +363,21 @@ def main():
         f"{OUTPUT_FILE}"
     )
 
-    print("\nSAMPLE CHUNKS")
+    print("\nCONTACT CHUNKS")
     print("-" * 60)
 
-    for chunk in chunks[:3]:
-
+    for chunk in contact_chunks[:10]:
         print(
-            f"\nID: "
-            f"{chunk['chunk_id']}"
+            f"\nID: {chunk['chunk_id']}"
         )
-
         print(
-            f"Document ID: "
-            f"{chunk['document_id']}"
+            f"Title: {chunk['title']}"
         )
-
         print(
-            f"Title: "
-            f"{chunk['title']}"
+            f"Source: {chunk['source']}"
         )
-
         print(
-            f"Source: "
-            f"{chunk['source']}"
-        )
-
-        print(
-            f"Text: "
-            f"{chunk['content'][:300]}"
+            f"Text:\n{chunk['content']}"
         )
 
 

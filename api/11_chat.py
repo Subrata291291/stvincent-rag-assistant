@@ -22,7 +22,9 @@ sys.path.insert(
     str(PROJECT_ROOT)
 )
 
-load_dotenv()
+load_dotenv(
+    PROJECT_ROOT / ".env"
+)
 
 
 RETRIEVAL_FILE = (
@@ -176,7 +178,6 @@ Pay special attention to:
 
 - names
 - addresses
-- salaries
 - fees
 - dates
 - admission requirements
@@ -216,34 +217,97 @@ Do not add explanations outside the JSON.
 
 
 QUERY_CLASSIFIER_PROMPT = """
-You classify user messages for a school AI assistant.
+You classify user messages for the official AI assistant
+of St. Vincent's Academy.
 
 Return ONLY one word:
 
 GENERAL
 
-or
-
 SCHOOL
 
-GENERAL means the user is having normal conversation
-that does not require information from the school's
-website or documents.
+or
 
-This includes conversational messages, greetings,
-thanks, casual small talk, questions about the assistant,
-and similar messages that do not require school information.
+OUT_OF_SCOPE
 
-SCHOOL means the user is asking for information that
-should be answered using the school's website or documents.
 
-This includes questions about admissions, fees, classes,
-teachers, staff, facilities, activities, notices, policies,
-documents, events, contact information, transport,
-academic information, schedules, or other school-specific
-information.
+GENERAL means simple conversation that does not require
+school information.
 
-When uncertain, return SCHOOL.
+Examples:
+
+Hi
+Hello
+Hey
+Good morning
+Good afternoon
+Good evening
+How are you?
+Thank you
+Thanks
+Bye
+Goodbye
+What can you help me with?
+
+
+SCHOOL means the user is asking for information related
+to St. Vincent's Academy.
+
+Examples:
+
+What is the school address?
+What are the school timings?
+What is the admission fee?
+What is the application form fee?
+When is admission?
+What classes are available?
+What facilities does the school have?
+What is the school phone number?
+What is the school email?
+What are the school activities?
+What documents are required for admission?
+What is the school calendar?
+Does the school provide transport?
+
+
+OUT_OF_SCOPE means the user is asking a factual,
+informational, educational, technical, programming,
+mathematical, scientific, historical, entertainment,
+political, or other question that is NOT related to
+St. Vincent's Academy.
+
+Examples:
+
+What is coding?
+What is Python?
+What is JavaScript?
+Explain machine learning.
+What is artificial intelligence?
+What is the capital of India?
+How does a computer work?
+Tell me a joke.
+What is the weather today?
+How does a car engine work?
+
+
+IMPORTANT:
+
+Do NOT answer the user's question.
+
+Only classify the message.
+
+A factual or informational question that is not about
+St. Vincent's Academy must be OUT_OF_SCOPE.
+
+When uncertain between SCHOOL and OUT_OF_SCOPE,
+return SCHOOL.
+
+Return ONLY:
+
+GENERAL
+SCHOOL
+or
+OUT_OF_SCOPE
 """
 
 
@@ -673,12 +737,21 @@ def classify_query(query):
             if result == "SCHOOL":
                 return "SCHOOL"
 
+            if result == "OUT_OF_SCOPE":
+                return "OUT_OF_SCOPE"
+
         except Exception as error:
 
             print(
                 f"Classifier {provider_name} error: "
                 f"{error}"
             )
+
+            print(
+                f"Falling back from {provider_name}..."
+            )
+
+            time.sleep(1)
 
     return "SCHOOL"
 
@@ -689,16 +762,27 @@ def generate_general_response(query):
 You are the conversational assistant for
 St. Vincent's Academy.
 
-The user's message is general conversation and does not
-require school-document information.
+The user's message is simple general conversation
+and does not require school-document information.
 
 Respond naturally, politely, and conversationally.
 
-Do not invent or provide school-specific facts.
+You may respond to:
 
-If the user asks for school-specific information,
-the school's document-based information system should
-be used.
+- greetings
+- thanks
+- goodbye
+- simple casual conversation
+- simple questions about what this assistant can help with
+
+Do not answer factual questions unrelated to
+St. Vincent's Academy.
+
+Do not provide explanations about programming,
+science, mathematics, technology, politics,
+entertainment, or other unrelated topics.
+
+Do not invent or provide school-specific facts.
 
 Return only the response to the user.
 """
@@ -715,6 +799,7 @@ Return only the response to the user.
     providers = create_providers()
 
     if not providers:
+
         raise RuntimeError(
             "No LLM provider is configured."
         )
@@ -1104,6 +1189,26 @@ def main():
 
             answer = generate_general_response(
                 query
+            )
+
+            print()
+            print("=" * 60)
+            print("ANSWER")
+            print("=" * 60)
+            print()
+
+            print(
+                answer
+            )
+
+            return
+
+        if query_type == "OUT_OF_SCOPE":
+
+            answer = (
+                "I'm not able to answer that. "
+                "I'm designed to help with questions related to "
+                "St. Vincent's Academy."
             )
 
             print()
