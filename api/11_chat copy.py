@@ -157,35 +157,6 @@ USER QUESTION.
 A factual statement is supported only when the CONTEXT
 explicitly states it or directly supports it.
 
-IMPORTANT EVIDENCE-LIMIT RULE:
-
-A statement about what the CONTEXT does or does not
-explicitly state is allowed when it accurately describes
-the supplied CONTEXT.
-
-For example, if the CONTEXT explicitly states:
-
-"School Hours: 8.00 am - 4.00 pm"
-
-but does not explicitly state whether those hours apply
-every day, this answer is valid:
-
-"The school documents state that the school hours are
-8.00 am - 4.00 pm, but they do not explicitly state
-whether these hours apply every day."
-
-Do NOT treat this type of evidence-qualified statement
-as an unsupported school fact.
-
-However, do reject a statement that turns missing evidence
-into a factual conclusion.
-
-For example, reject:
-
-"The school is closed on some days."
-
-if the CONTEXT does not explicitly support that fact.
-
 Reject answers containing:
 
 - guessed facts
@@ -767,102 +738,6 @@ def format_conversation_history(history):
     return "\n".join(lines)
 
 
-
-CONTEXTUALIZE_PROMPT = """
-You rewrite a user's latest question into a standalone question
-for retrieval from St. Vincent's Academy documents.
-
-Rules:
-- Use conversation history only to resolve references such as:
-  it, that, this, they, those, there, when, how much, and similar follow-ups.
-- Do not answer the question.
-- Do not add facts that are not present in the conversation.
-- Do not invent school information.
-- If the latest question is already standalone, return it unchanged.
-- Preserve names, dates, amounts, class names and exact wording when relevant.
-- Return only the rewritten question.
-"""
-
-
-def contextualize_query(query, history=None):
-
-    history = history or []
-
-    if not history:
-        return query
-
-    history_text = format_conversation_history(history)
-
-    prompt = f"""
-CONVERSATION HISTORY:
-
-{history_text}
-
-LATEST USER QUESTION:
-
-{query}
-
-Rewrite the latest question as a standalone retrieval query only
-when the conversation history is needed to understand it.
-
-If it is already standalone, return it unchanged.
-
-Return only the rewritten question.
-"""
-
-    messages = [
-        SystemMessage(
-            content=CONTEXTUALIZE_PROMPT
-        ),
-        HumanMessage(
-            content=prompt
-        )
-    ]
-
-    providers = create_providers()
-
-    if not providers:
-        return query
-
-    for provider_name, provider in providers:
-
-        try:
-
-            print(
-                f"Contextualizer provider: {provider_name}"
-            )
-
-            response = provider.invoke(
-                messages
-            )
-
-            rewritten = extract_response_content(
-                response
-            ).strip()
-
-            if rewritten:
-
-                print(
-                    f"Retrieval query: {rewritten}"
-                )
-
-                return rewritten
-
-        except Exception as error:
-
-            print(
-                f"Contextualizer {provider_name} error: "
-                f"{error}"
-            )
-
-            print(
-                f"Falling back from {provider_name}..."
-            )
-
-            time.sleep(1)
-
-    return query
-
 def classify_query(
     query,
     history=None
@@ -1129,25 +1004,7 @@ For fee questions, distinguish:
 An amount belonging to one fee category must not be
 used as the amount for another fee category.
 
-If the CONTEXT contains the main fact requested by the
-user but does not explicitly contain an important
-qualification asked by the user, do not guess the
-missing qualification.
-
-Instead, state the supported fact and clearly explain
-that the CONTEXT does not explicitly state the missing
-qualification.
-
-For example:
-
-"The school documents state that the school hours are
-8.00 am - 4.00 pm, but they do not explicitly state
-whether these hours apply every day."
-
-Do not turn missing evidence into a factual conclusion.
-
-If the requested information itself is completely
-unavailable, say:
+If the requested information is not available, say:
 
 "I couldn't find this information in the available
 school documents."
@@ -1270,15 +1127,6 @@ STRICT REQUIREMENTS:
 - Use only explicitly supported facts.
 - Answer exactly the user's question.
 - Do not infer anything.
-- Do not infer the missing qualification.
-- If the context supports the main fact but does not
-  explicitly state a qualification asked by the user,
-  state the supported fact and say that the context does
-  not explicitly state that qualification.
-- A statement such as "the documents do not explicitly
-  state whether..." is allowed when it accurately
-  describes the supplied context.
-- Do not turn missing evidence into a factual conclusion.
 - Do not add related information.
 - Do not add requirements that are not written.
 - Do not add the word "signed" unless explicitly stated.

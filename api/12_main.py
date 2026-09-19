@@ -42,6 +42,9 @@ classify_query = chat_module.classify_query
 generate_general_response = (
     chat_module.generate_general_response
 )
+contextualize_query = (
+    chat_module.contextualize_query
+)
 
 
 app = FastAPI(
@@ -64,9 +67,16 @@ app.add_middleware(
 )
 
 
+class HistoryMessage(BaseModel):
+
+    role: str
+    text: str
+
+
 class ChatRequest(BaseModel):
 
     question: str
+    history: list[HistoryMessage] = []
 
 
 class ChatResponse(BaseModel):
@@ -147,6 +157,16 @@ def chat(
 
     question = request.question.strip()
 
+    history = [
+        message.model_dump()
+        for message in request.history
+    ]
+
+    print(
+        f"Conversation history messages: "
+        f"{len(history)}"
+    )
+
     if not question:
 
         return ChatResponse(
@@ -157,7 +177,8 @@ def chat(
     try:
 
         query_type = classify_query(
-            question
+            question,
+            history
         )
 
         print(
@@ -167,7 +188,8 @@ def chat(
         if query_type == "GENERAL":
 
             answer = generate_general_response(
-                question
+                question,
+                history
             )
 
             return ChatResponse(
@@ -190,9 +212,46 @@ def chat(
             "Retrieving school information..."
         )
 
-        results = retrieve(
-            question
+        contextualized_question = contextualize_query(
+            question,
+            history
         )
+
+        print(
+            f"Contextualized query: "
+            f"{contextualized_question}"
+        )
+
+        results = retrieve(
+            contextualized_question
+        )
+
+        if contextualized_question != question:
+
+            original_results = retrieve(
+                question
+            )
+
+            existing = {
+                (
+                    item.get("id"),
+                    item.get("content")
+                )
+                for item in results
+            }
+
+            for item in original_results:
+
+                key = (
+                    item.get("id"),
+                    item.get("content")
+                )
+
+                if key not in existing:
+
+                    results.append(
+                        item
+                    )
 
         print(
             f"Relevant chunks found: "
@@ -200,8 +259,9 @@ def chat(
         )
 
         answer, provider = generate_answer(
-            question,
-            results
+            contextualized_question,
+            results,
+            history
         )
 
         sources = build_sources(
